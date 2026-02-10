@@ -9,7 +9,7 @@ export default function Index() {
         alignItems: "center",
       }}
     >
-      <Text>Dave Wiliam 7.</Text>
+      <Text>Dave Wiliam - 00000093527.</Text>
     </View>
   );
 }
