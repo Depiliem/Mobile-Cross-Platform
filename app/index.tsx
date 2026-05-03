@@ -73,7 +73,7 @@ export default function Index() {
             initialRegion={region}
             onPress={handleMapPress}
           >
-            <UrlTile urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            <UrlTile urlTemplate="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <Marker
               coordinate={location}
               title="Lokasi Terpilih"
