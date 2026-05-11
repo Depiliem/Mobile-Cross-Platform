@@ -37,8 +37,14 @@ export default function Index() {
 
   const takePicture = async () => {
     if (cameraRef.current) {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.5 });
-      setPhotoUri(photo.uri);
+      try {
+        const photo = await cameraRef.current.takePictureAsync({
+          quality: 0.5,
+        });
+        setPhotoUri(photo.uri);
+      } catch (error) {
+        Alert.alert("Error", "Gagal menangkap gambar. Silakan coba lagi.");
+      }
     }
   };
 
@@ -58,16 +64,18 @@ export default function Index() {
       const location = await Location.getCurrentPositionAsync({});
       const lat = String(location.coords.latitude);
       const lon = String(location.coords.longitude);
-
-      const response = await fetch(photoUri!);
-      const blob = await response.blob();
       const fileName = `photo-${Date.now()}.jpg`;
+
+      const formData = new FormData();
+      formData.append("file", {
+        uri: photoUri,
+        name: fileName,
+        type: "image/jpeg",
+      } as any);
 
       const { error: storageError } = await supabase.storage
         .from("camera")
-        .upload(fileName, blob, {
-          contentType: "image/jpeg",
-        });
+        .upload(fileName, formData);
 
       if (storageError) throw storageError;
 
@@ -75,13 +83,11 @@ export default function Index() {
         .from("camera")
         .getPublicUrl(fileName);
 
-      const imageUrl = publicUrlData.publicUrl;
-
       const { error: dbError } = await supabase.from("photo").insert([
         {
           latitude: lat,
           longitude: lon,
-          image_url: imageUrl,
+          image_url: publicUrlData.publicUrl,
         },
       ]);
 
@@ -105,27 +111,32 @@ export default function Index() {
   return (
     <View style={styles.container}>
       {!photoUri ? (
-        <CameraView style={styles.camera} ref={cameraRef}>
-          <View style={styles.buttonContainer}>
+        <View style={styles.container}>
+          <CameraView style={styles.camera} ref={cameraRef} />
+          <View style={styles.overlayButtonContainer}>
             <Button title="AMBIL FOTO" onPress={takePicture} color="#2563eb" />
           </View>
-        </CameraView>
+        </View>
       ) : (
         <View style={styles.previewContainer}>
           <Image source={{ uri: photoUri }} style={styles.preview} />
           <View style={styles.actionButtons}>
-            <Button
-              title="ULANGI"
-              onPress={() => setPhotoUri(null)}
-              disabled={isUploading}
-              color="#ef4444"
-            />
-            <Button
-              title="UPLOAD & SIMPAN"
-              onPress={uploadAndSave}
-              disabled={isUploading}
-              color="#10b981"
-            />
+            <View style={styles.buttonWrapper}>
+              <Button
+                title="ULANGI"
+                onPress={() => setPhotoUri(null)}
+                disabled={isUploading}
+                color="#ef4444"
+              />
+            </View>
+            <View style={styles.buttonWrapper}>
+              <Button
+                title="UPLOAD & SIMPAN"
+                onPress={uploadAndSave}
+                disabled={isUploading}
+                color="#10b981"
+              />
+            </View>
           </View>
           {isUploading && (
             <ActivityIndicator
@@ -143,6 +154,7 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#000",
   },
   center: {
     flex: 1,
@@ -158,11 +170,15 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
-    justifyContent: "flex-end",
   },
-  buttonContainer: {
-    padding: 24,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+  overlayButtonContainer: {
+    position: "absolute",
+    bottom: 50,
+    alignSelf: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 30,
   },
   previewContainer: {
     flex: 1,
@@ -174,10 +190,14 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: "row",
-    justifyContent: "space-around",
+    justifyContent: "space-between",
     padding: 20,
     backgroundColor: "#ffffff",
     paddingBottom: 40,
+  },
+  buttonWrapper: {
+    flex: 1,
+    marginHorizontal: 10,
   },
   loader: {
     position: "absolute",
