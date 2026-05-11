@@ -1,91 +1,140 @@
+import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Button,
-  Dimensions,
+  Image,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import MapView, { Marker, Region, UrlTile } from "react-native-maps";
-
-type Coordinates = {
-  latitude: number;
-  longitude: number;
-};
-
-const { height } = Dimensions.get("window");
+import { supabase } from "../lib/supabase";
 
 export default function Index() {
-  const [location, setLocation] = useState<Coordinates | null>(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const cameraRef = useRef<any>(null);
 
-  const getLocation = async (): Promise<void> => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
+  if (!cameraPermission) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
 
-    if (status !== "granted") {
-      Alert.alert(
-        "Akses Ditolak",
-        "Aplikasi membutuhkan izin untuk mengakses lokasi perangkat.",
-      );
-      return;
+  if (!cameraPermission.granted) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.text}>Aplikasi membutuhkan izin akses kamera.</Text>
+        <Button title="Beri Izin Kamera" onPress={requestCameraPermission} />
+      </View>
+    );
+  }
+
+  const takePicture = async () => {
+    if (cameraRef.current) {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.5 });
+      setPhotoUri(photo.uri);
     }
-
-    const loc = await Location.getCurrentPositionAsync({});
-
-    setLocation({
-      latitude: loc.coords.latitude,
-      longitude: loc.coords.longitude,
-    });
   };
 
-  const handleMapPress = (e: any) => {
-    setLocation(e.nativeEvent.coordinate);
-  };
-
-  const handleMarkerDragEnd = (e: any) => {
-    setLocation(e.nativeEvent.coordinate);
-  };
-
-  const region: Region | undefined = location
-    ? {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
+  const uploadAndSave = async () => {
+    setIsUploading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Akses Ditolak",
+          "Izin lokasi dibutuhkan untuk menyimpan data koordinat.",
+        );
+        setIsUploading(false);
+        return;
       }
-    : undefined;
+
+      const location = await Location.getCurrentPositionAsync({});
+      const lat = String(location.coords.latitude);
+      const lon = String(location.coords.longitude);
+
+      const response = await fetch(photoUri!);
+      const blob = await response.blob();
+      const fileName = `photo-${Date.now()}.jpg`;
+
+      const { error: storageError } = await supabase.storage
+        .from("camera")
+        .upload(fileName, blob, {
+          contentType: "image/jpeg",
+        });
+
+      if (storageError) throw storageError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from("camera")
+        .getPublicUrl(fileName);
+
+      const imageUrl = publicUrlData.publicUrl;
+
+      const { error: dbError } = await supabase.from("photo").insert([
+        {
+          latitude: lat,
+          longitude: lon,
+          image_url: imageUrl,
+        },
+      ]);
+
+      if (dbError) throw dbError;
+
+      Alert.alert(
+        "Sukses",
+        "Foto dan data lokasi berhasil diunggah ke Supabase.",
+      );
+      setPhotoUri(null);
+    } catch (error: any) {
+      Alert.alert(
+        "Kesalahan Sistem",
+        error.message || "Gagal mengunggah data.",
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
-      {!location ? (
-        <View style={styles.center}>
-          <Button
-            title="Get Geo Location"
-            onPress={getLocation}
-            color="#3b82f6"
-          />
-        </View>
-      ) : (
-        <>
-          <MapView
-            style={styles.map}
-            initialRegion={region}
-            onPress={handleMapPress}
-          >
-            <UrlTile urlTemplate="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            <Marker
-              coordinate={location}
-              title="Lokasi Terpilih"
-              draggable
-              onDragEnd={handleMarkerDragEnd}
-            />
-          </MapView>
-          <View style={styles.info}>
-            <Text style={styles.infoText}>Latitude: {location.latitude}</Text>
-            <Text style={styles.infoText}>Longitude: {location.longitude}</Text>
+      {!photoUri ? (
+        <CameraView style={styles.camera} ref={cameraRef}>
+          <View style={styles.buttonContainer}>
+            <Button title="AMBIL FOTO" onPress={takePicture} color="#2563eb" />
           </View>
-        </>
+        </CameraView>
+      ) : (
+        <View style={styles.previewContainer}>
+          <Image source={{ uri: photoUri }} style={styles.preview} />
+          <View style={styles.actionButtons}>
+            <Button
+              title="ULANGI"
+              onPress={() => setPhotoUri(null)}
+              disabled={isUploading}
+              color="#ef4444"
+            />
+            <Button
+              title="UPLOAD & SIMPAN"
+              onPress={uploadAndSave}
+              disabled={isUploading}
+              color="#10b981"
+            />
+          </View>
+          {isUploading && (
+            <ActivityIndicator
+              size="large"
+              color="#ffffff"
+              style={styles.loader}
+            />
+          )}
+        </View>
       )}
     </View>
   );
@@ -94,36 +143,47 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8fafc",
   },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "#f8fafc",
   },
-  map: {
-    height: height * 0.65,
-    width: "100%",
-  },
-  info: {
-    flex: 1,
-    padding: 24,
-    backgroundColor: "#ffffff",
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  infoText: {
+  text: {
+    marginBottom: 20,
     fontSize: 16,
-    fontWeight: "600",
-    color: "#1e293b",
-    marginBottom: 12,
+    color: "#334155",
+    fontWeight: "500",
+  },
+  camera: {
+    flex: 1,
+    justifyContent: "flex-end",
   },
   buttonContainer: {
-    marginTop: 20,
+    padding: 24,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+  },
+  previewContainer: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
+  preview: {
+    flex: 1,
+    resizeMode: "contain",
+  },
+  actionButtons: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    padding: 20,
+    backgroundColor: "#ffffff",
+    paddingBottom: 40,
+  },
+  loader: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginLeft: -18,
+    marginTop: -18,
   },
 });
