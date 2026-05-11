@@ -15,57 +15,74 @@ import { supabase } from "../lib/supabase";
 export default function Index() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [coords, setCoords] = useState<{ lat: string; lon: string } | null>(
+    null,
+  );
   const [isUploading, setIsUploading] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
   const cameraRef = useRef<any>(null);
 
-  if (!cameraPermission) {
+  const NAMA = "Dave - 00000093527";
+
+  if (!cameraPermission)
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" />
       </View>
     );
-  }
 
   if (!cameraPermission.granted) {
     return (
       <View style={styles.center}>
-        <Text style={styles.text}>Aplikasi membutuhkan izin akses kamera.</Text>
-        <Button title="Beri Izin Kamera" onPress={requestCameraPermission} />
+        <Text style={styles.text}>Izin Kamera diperlukan</Text>
+        <Button title="Beri Izin" onPress={requestCameraPermission} />
       </View>
     );
   }
 
-  const takePicture = async () => {
+  const handleTakePicture = async () => {
     if (cameraRef.current) {
       try {
         const photo = await cameraRef.current.takePictureAsync({
           quality: 0.5,
         });
         setPhotoUri(photo.uri);
-      } catch (error) {
-        Alert.alert("Error", "Gagal menangkap gambar. Silakan coba lagi.");
+        setIsCameraOpen(false);
+      } catch (e) {
+        Alert.alert("Error", "Gagal mengambil foto");
       }
     }
   };
 
-  const uploadAndSave = async () => {
+  const handleGetLocation = async () => {
+    let { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Ditolak", "Izin lokasi diperlukan");
+      return;
+    }
+    const loc = await Location.getCurrentPositionAsync({});
+    setCoords({
+      lat: loc.coords.latitude.toFixed(6),
+      lon: loc.coords.longitude.toFixed(6),
+    });
+    Alert.alert(
+      "Lokasi Berhasil",
+      `Lat: ${loc.coords.latitude}, Lon: ${loc.coords.longitude}`,
+    );
+  };
+
+  const handleSendToSupabase = async () => {
+    if (!photoUri || !coords) {
+      Alert.alert(
+        "Data Belum Lengkap",
+        "Ambil foto dan lokasi terlebih dahulu!",
+      );
+      return;
+    }
+
     setIsUploading(true);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Akses Ditolak",
-          "Izin lokasi dibutuhkan untuk menyimpan data koordinat.",
-        );
-        setIsUploading(false);
-        return;
-      }
-
-      const location = await Location.getCurrentPositionAsync({});
-      const lat = String(location.coords.latitude);
-      const lon = String(location.coords.longitude);
       const fileName = `photo-${Date.now()}.jpg`;
-
       const formData = new FormData();
       formData.append("file", {
         uri: photoUri,
@@ -76,7 +93,6 @@ export default function Index() {
       const { error: storageError } = await supabase.storage
         .from("camera")
         .upload(fileName, formData);
-
       if (storageError) throw storageError;
 
       const { data: publicUrlData } = supabase.storage
@@ -85,125 +101,122 @@ export default function Index() {
 
       const { error: dbError } = await supabase.from("photo").insert([
         {
-          latitude: lat,
-          longitude: lon,
+          latitude: coords.lat,
+          longitude: coords.lon,
           image_url: publicUrlData.publicUrl,
         },
       ]);
-
       if (dbError) throw dbError;
 
-      Alert.alert(
-        "Sukses",
-        "Foto dan data lokasi berhasil diunggah ke Supabase.",
-      );
+      Alert.alert("Berhasil!", "Data telah terkirim ke Supabase");
       setPhotoUri(null);
+      setCoords(null);
     } catch (error: any) {
-      Alert.alert(
-        "Kesalahan Sistem",
-        error.message || "Gagal mengunggah data.",
-      );
+      Alert.alert("Gagal", error.message);
     } finally {
       setIsUploading(false);
     }
   };
 
+  if (isCameraOpen) {
+    return (
+      <View style={styles.container}>
+        <CameraView style={styles.camera} ref={cameraRef} />
+        <View style={styles.cameraControls}>
+          <Button
+            title="Cancel"
+            onPress={() => setIsCameraOpen(false)}
+            color="red"
+          />
+          <Button title="Confirm" onPress={handleTakePicture} />
+        </View>
+      </View>
+    );
+  }
   return (
-    <View style={styles.container}>
-      {!photoUri ? (
-        <View style={styles.container}>
-          <CameraView style={styles.camera} ref={cameraRef} />
-          <View style={styles.overlayButtonContainer}>
-            <Button title="AMBIL FOTO" onPress={takePicture} color="#2563eb" />
-          </View>
+    <View style={styles.mainContainer}>
+      <Text style={styles.headerText}>{NAMA}</Text>
+
+      <View style={styles.buttonGroup}>
+        <View style={styles.btnMargin}>
+          <Button title="OPEN CAMERA" onPress={() => setIsCameraOpen(true)} />
         </View>
-      ) : (
-        <View style={styles.previewContainer}>
-          <Image source={{ uri: photoUri }} style={styles.preview} />
-          <View style={styles.actionButtons}>
-            <View style={styles.buttonWrapper}>
-              <Button
-                title="ULANGI"
-                onPress={() => setPhotoUri(null)}
-                disabled={isUploading}
-                color="#ef4444"
-              />
-            </View>
-            <View style={styles.buttonWrapper}>
-              <Button
-                title="UPLOAD & SIMPAN"
-                onPress={uploadAndSave}
-                disabled={isUploading}
-                color="#10b981"
-              />
-            </View>
-          </View>
-          {isUploading && (
-            <ActivityIndicator
-              size="large"
-              color="#ffffff"
-              style={styles.loader}
-            />
-          )}
+        <View style={styles.btnMargin}>
+          <Button
+            title="AMBIL LOKASI"
+            color="#0ea5e9"
+            onPress={handleGetLocation}
+          />
         </View>
+      </View>
+
+      {coords && (
+        <Text style={styles.locationText}>
+          {coords.lat}, {coords.lon}
+        </Text>
       )}
+
+      <View style={styles.imageFrame}>
+        {photoUri ? (
+          <Image source={{ uri: photoUri }} style={styles.imagePreview} />
+        ) : (
+          <View style={styles.placeholder}>
+            <Text style={{ color: "white" }}>Belum ada foto</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.footer}>
+        <Button
+          title={isUploading ? "MENGIRIM..." : "KIRIM KE SUPABASE"}
+          disabled={isUploading}
+          color="#10b981"
+          onPress={handleSendToSupabase}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  container: { flex: 1 },
+  mainContainer: {
     flex: 1,
-    backgroundColor: "#000",
+    padding: 40,
+    backgroundColor: "#f3f4f6",
+    alignItems: "center",
   },
-  center: {
-    flex: 1,
+  headerText: {
+    fontSize: 20,
+    fontWeight: "500",
+    marginBottom: 20,
+    color: "#374151",
+  },
+  buttonGroup: { width: "100%", marginBottom: 10 },
+  btnMargin: { marginBottom: 10 },
+  locationText: { fontSize: 14, color: "#0369a1", marginBottom: 10 },
+  imageFrame: {
+    width: 300,
+    height: 300,
+    backgroundColor: "#000",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f8fafc",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    marginBottom: 30,
   },
-  text: {
-    marginBottom: 20,
-    fontSize: 16,
-    color: "#334155",
-    fontWeight: "500",
-  },
-  camera: {
-    flex: 1,
-  },
-  overlayButtonContainer: {
-    position: "absolute",
-    bottom: 50,
-    alignSelf: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 30,
-  },
-  previewContainer: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-  preview: {
-    flex: 1,
-    resizeMode: "contain",
-  },
-  actionButtons: {
+  placeholder: { flex: 1, justifyContent: "center" },
+  imagePreview: { width: "100%", height: "100%", resizeMode: "cover" },
+  camera: { flex: 1 },
+  cameraControls: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "space-around",
     padding: 20,
-    backgroundColor: "#ffffff",
-    paddingBottom: 40,
+    backgroundColor: "black",
   },
-  buttonWrapper: {
-    flex: 1,
-    marginHorizontal: 10,
-  },
-  loader: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    marginLeft: -18,
-    marginTop: -18,
-  },
+  footer: { width: "100%", marginTop: "auto" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  text: { marginBottom: 10 },
 });
