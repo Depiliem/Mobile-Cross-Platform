@@ -1,16 +1,62 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import React, { useRef, useState } from "react";
+import * as Notifications from "expo-notifications";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Button,
   Image,
+  Platform,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { supabase } from "../lib/supabase";
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+async function requestNotificationPermissions() {
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync("default", {
+      name: "default",
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#FF231F7C",
+    });
+  }
+
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
+
+  if (existingStatus !== "granted") {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+
+  if (finalStatus !== "granted") {
+    Alert.alert("Gagal", "Akses notifikasi tidak diberikan");
+  }
+}
+
+async function triggerLocalNotification(title: string, body: string) {
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: title,
+      body: body,
+      sound: true,
+    },
+    trigger: null,
+  });
+}
 
 export default function Index() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -22,7 +68,11 @@ export default function Index() {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const cameraRef = useRef<any>(null);
 
-  const NAMA = "Dave - 00000093527";
+  const NAMA = "Dave Wiliam - 00000093527";
+
+  useEffect(() => {
+    requestNotificationPermissions();
+  }, []);
 
   if (!cameraPermission)
     return (
@@ -54,6 +104,18 @@ export default function Index() {
     }
   };
 
+  const handleOpenGallery = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.5,
+    });
+
+    if (!result.canceled) {
+      setPhotoUri(result.assets[0].uri);
+    }
+  };
+
   const handleGetLocation = async () => {
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== "granted") {
@@ -62,8 +124,8 @@ export default function Index() {
     }
     const loc = await Location.getCurrentPositionAsync({});
     setCoords({
-      lat: loc.coords.latitude.toFixed(6),
-      lon: loc.coords.longitude.toFixed(6),
+      lat: String(loc.coords.latitude.toFixed(6)),
+      lon: String(loc.coords.longitude.toFixed(6)),
     });
     Alert.alert(
       "Lokasi Berhasil",
@@ -75,7 +137,7 @@ export default function Index() {
     if (!photoUri || !coords) {
       Alert.alert(
         "Data Belum Lengkap",
-        "Ambil foto dan lokasi terlebih dahulu!",
+        "Ambil foto dan lokasi terlebih dahulu",
       );
       return;
     }
@@ -108,10 +170,20 @@ export default function Index() {
       ]);
       if (dbError) throw dbError;
 
-      Alert.alert("Berhasil!", "Data telah terkirim ke Supabase");
+      await triggerLocalNotification(
+        "Upload Berhasil",
+        `Data tersimpan. Lat: ${coords.lat}, Lon: ${coords.lon}`,
+      );
+
+      Alert.alert("Berhasil", "Data telah terkirim ke Supabase");
       setPhotoUri(null);
       setCoords(null);
     } catch (error: any) {
+      await triggerLocalNotification(
+        "Upload Gagal",
+        `Gagal mengirim data. Lat: ${coords.lat}, Lon: ${coords.lon}`,
+      );
+
       Alert.alert("Gagal", error.message);
     } finally {
       setIsUploading(false);
@@ -133,6 +205,7 @@ export default function Index() {
       </View>
     );
   }
+
   return (
     <View style={styles.mainContainer}>
       <Text style={styles.headerText}>{NAMA}</Text>
@@ -140,6 +213,9 @@ export default function Index() {
       <View style={styles.buttonGroup}>
         <View style={styles.btnMargin}>
           <Button title="OPEN CAMERA" onPress={() => setIsCameraOpen(true)} />
+        </View>
+        <View style={styles.btnMargin}>
+          <Button title="OPEN GALLERY" onPress={handleOpenGallery} />
         </View>
         <View style={styles.btnMargin}>
           <Button
@@ -152,7 +228,7 @@ export default function Index() {
 
       {coords && (
         <Text style={styles.locationText}>
-          {coords.lat}, {coords.lon}
+          Lat: {coords.lat}, Lon: {coords.lon}
         </Text>
       )}
 
@@ -168,7 +244,7 @@ export default function Index() {
 
       <View style={styles.footer}>
         <Button
-          title={isUploading ? "MENGIRIM..." : "KIRIM KE SUPABASE"}
+          title={isUploading ? "MENGIRIM" : "KIRIM KE SUPABASE"}
           disabled={isUploading}
           color="#10b981"
           onPress={handleSendToSupabase}
