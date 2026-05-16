@@ -14,6 +14,8 @@ import {
   View,
 } from "react-native";
 import { supabase } from "../lib/supabase";
+import { useAppDispatch, useAppSelector } from "../store/hooks";
+import { incrementFailed, incrementSuccess } from "../store/upload.slice";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -67,6 +69,10 @@ export default function Index() {
   const [isUploading, setIsUploading] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const cameraRef = useRef<any>(null);
+
+  const dispatch = useAppDispatch();
+  const successCount = useAppSelector((state) => state.upload.successCount);
+  const failedCount = useAppSelector((state) => state.upload.failedCount);
 
   const NAMA = "Dave Wiliam - 00000093527";
 
@@ -170,18 +176,24 @@ export default function Index() {
       ]);
       if (dbError) throw dbError;
 
+      dispatch(incrementSuccess());
+      const currentSuccess = successCount + 1;
+
       await triggerLocalNotification(
-        "Upload Berhasil",
-        `Data tersimpan. Lat: ${coords.lat}, Lon: ${coords.lon}`,
+        "Supabase share: Sent files",
+        `${currentSuccess} successful, ${failedCount} unsuccessful\nLat: ${coords.lat}, Lon: ${coords.lon}`,
       );
 
       Alert.alert("Berhasil", "Data telah terkirim ke Supabase");
       setPhotoUri(null);
       setCoords(null);
     } catch (error: any) {
+      dispatch(incrementFailed());
+      const currentFailed = failedCount + 1;
+
       await triggerLocalNotification(
-        "Upload Gagal",
-        `Gagal mengirim data. Lat: ${coords.lat}, Lon: ${coords.lon}`,
+        "Supabase share: Sent files",
+        `${successCount} successful, ${currentFailed} unsuccessful\nLat: ${coords.lat}, Lon: ${coords.lon}`,
       );
 
       Alert.alert("Gagal", error.message);
@@ -242,6 +254,12 @@ export default function Index() {
         )}
       </View>
 
+      <View style={styles.statsContainer}>
+        <Text style={styles.statsText}>
+          Berhasil: {successCount} | Gagal: {failedCount}
+        </Text>
+      </View>
+
       <View style={styles.footer}>
         <Button
           title={isUploading ? "MENGIRIM" : "KIRIM KE SUPABASE"}
@@ -281,10 +299,12 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
-    marginBottom: 30,
+    marginBottom: 20,
   },
   placeholder: { flex: 1, justifyContent: "center" },
   imagePreview: { width: "100%", height: "100%", resizeMode: "cover" },
+  statsContainer: { marginBottom: 20 },
+  statsText: { fontSize: 16, fontWeight: "bold", color: "#4b5563" },
   camera: { flex: 1 },
   cameraControls: {
     flexDirection: "row",
